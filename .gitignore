@@ -1,0 +1,23 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Runtime databases
+*.db
+*.sqlite
+*.sqlite3
+
+# macOS / editors
+.DS_Store
+.vscode/
+.idea/

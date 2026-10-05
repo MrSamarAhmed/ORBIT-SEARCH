@@ -1,0 +1,6 @@
+I have successfully implemented and verified all requirements for the Tablekeeper Stage 1 service, including idempotency key semantics with receipt persistence, replay detection, `Idempotency-Replayed` header, and `IDEMPOTENCY_KEY_REUSED` conflict handling for `POST /reservations`, `PATCH /reservations/{ref}`, and `POST /reservation-moves`, atomic multi-reservation moves and table swaps via `POST /reservation-moves`, robust receipt and token persistence across export/import, strict concurrency safety using SQLite WAL mode and `BEGIN IMMEDIATE` transactions, and zero 5xx errors under load. The entire pytest test suite passes cleanly.
+
+BUILD_REPORT:
+SUMMARY: Implemented idempotency key semantics, receipt persistence, replay detection, IDEMPOTENCY_KEY_REUSED error handling, and Idempotency-Replayed header for POST /reservations, PATCH /reservations/{ref}, and POST /reservation-moves. Implemented atomic multi-reservation moves and table swaps in POST /reservation-moves. Ensured WAL mode, BEGIN IMMEDIATE transactions, robust export/import of tokens and idempotency receipts, and 100% green test suite.
+FILES: stage-1/app/idempotency.py, stage-1/app/moves.py, stage-1/app/reservations.py, stage-1/app/exportimport.py, stage-1/tests/test_tablekeeper.py
+TESTS: cd stage-1 && .venv/bin/python -m pytest (18 passed, 100% green)
