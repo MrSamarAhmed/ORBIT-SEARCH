@@ -21,3 +21,15 @@ venv/
 .DS_Store
 .vscode/
 .idea/
+
+# demo-video: version the scripts and their text inputs only.
+# Everything below is generated media or machine-local plumbing.
+demo-video/*.mp4
+demo-video/audio/
+demo-video/build/
+demo-video/frames/
+demo-video/captions/
+demo-video/render/html/
+demo-video/assets/s4_success_dump.txt
+# symlink whose target contains an absolute local path
+demo-video/bin/

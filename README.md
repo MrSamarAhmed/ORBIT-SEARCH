@@ -1,14 +1,32 @@
 # ORBIT Search
 
-**ORBIT Search is an AI-powered research workspace that decomposes complex
-questions into focused web searches, gathers evidence through SerpApi, and uses
-Gemini to synthesize cited research answers.**
+**ORBIT Search is an evidence-oriented research workflow that combines live web
+search, query planning, source collection, evidence selection, and AI-generated
+synthesis with citations.**
 
 It is a small, self-contained FastAPI application with a dependency-free
 browser interface. Ask a research question, and ORBIT Search plans several
-searches, runs them against the live web, collects and deduplicates the
-evidence, and returns a structured answer in which every citation is a URL the
-run actually retrieved.
+searches, runs them against the live web through SerpApi, collects and
+deduplicates the evidence, and returns a structured answer in which every
+citation is a URL the run actually retrieved.
+
+## Demo
+
+Watch the ORBIT Search demonstration:
+
+[Watch the demo video](YOUR_VIDEO_URL)
+
+> `YOUR_VIDEO_URL` is a placeholder. The recorded MP4 exists in this repository
+> at `demo-video/ORBIT_Search_SerpApi_Hackathon_Demo.mp4` (2 minutes 1 second,
+> 1920×1080, narrated and subtitled) and has **not** been uploaded to a public
+> URL yet, so the link above does not resolve until it is hosted.
+
+The demo walks one genuine research run end to end: entering a question, the
+planned sub-queries and per-query source counts returned by SerpApi, the source
+cards behind the answer, Gemini's synthesized answer with clickable inline
+citations, and an honest degraded run in which Gemini synthesis was
+rate-limited — the evidence is still returned and no answer is invented. It
+then shows the application source and the actual pytest result for the suite.
 
 ## Problem
 
@@ -18,9 +36,27 @@ searches, cross-checking between sources, and a written answer that can be
 traced back to where each claim came from. Doing that by hand is slow; asking a
 plain LLM gives fluent text with no verifiable grounding.
 
-ORBIT Search treats research as a pipeline — plan, search, collect, synthesize —
-so the output is inspectable instead of a black box, and so partial failures
-degrade honestly instead of discarding real evidence.
+## Solution
+
+ORBIT Search treats research as an inspectable pipeline — plan, search,
+collect, select, synthesize — rather than a single prompt. Every stage's input
+and output is returned in the API response, so a judge can see which queries
+ran, which sources each query produced, which sources were kept as evidence,
+and which of them the answer cited. When a stage fails, the run degrades
+explicitly instead of pretending it succeeded:
+
+```text
+Research question
+    -> Query planning
+    -> SerpApi search
+    -> Evidence collection and selection
+    -> Gemini synthesis when available
+    -> Answer and citations
+```
+
+If Gemini synthesis is unavailable, the application preserves the real search
+evidence and returns a degraded response (`answer: null` plus a warning)
+instead of generating an answer it cannot support.
 
 ## Key features
 
@@ -40,6 +76,10 @@ degrade honestly instead of discarding real evidence.
 - **Graceful degradation** — when Gemini planning or synthesis fails or times
   out, the service returns the real collected evidence with an explicit
   warning instead of an invented answer.
+- **Browser-based interface** — a dependency-free research workspace served by
+  the same FastAPI process; no frontend build step.
+- **Automated tests** — a focused pytest suite that mocks all upstream HTTP,
+  so the suite runs without SerpApi or Gemini quota.
 
 ## How a research run works
 
@@ -91,9 +131,15 @@ cited.
 | Frontend | Vanilla HTML/CSS/JavaScript — no build step, no framework |
 | Tests | pytest (+ a Node.js sandbox for the frontend script) |
 
-## Installation (macOS / Linux)
+## Prerequisites
 
-Requires Python 3.12 or later.
+- Python 3.12 or later
+- A [SerpApi](https://serpapi.com) API key
+- A [Google Gemini](https://aistudio.google.com/apikey) API key
+- Optional: Docker, and Node.js (the frontend behaviour tests run the real
+  `app.js` in a Node sandbox and skip automatically when Node.js is absent)
+
+## Installation (macOS / Linux)
 
 ```bash
 git clone https://github.com/MrSamarAhmed/ORBIT-SEARCH.git
@@ -138,7 +184,7 @@ export GEMINI_API_KEY=...
 ## Starting the application
 
 ```bash
-.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
 ```
 
 Then:
@@ -284,6 +330,8 @@ linked sources; the workspace states this explicitly.
   for multi-user production deployment; there is no authentication.
 - **No persistence** — research runs are stateless; nothing is stored
   between requests.
+- **Demo video not yet hosted** — the link in [Demo](#demo) is a placeholder
+  until the recorded MP4 is published to a public URL.
 
 ## Security notes
 
@@ -298,13 +346,14 @@ linked sources; the workspace states this explicitly.
 - Upstream errors are reported with fixed-format messages and status codes;
   response headers and bodies are never echoed into warnings.
 
-## Demo
+## Live walkthrough script
 
-A timed three-minute demonstration script — including the honest fallback path
-for when Gemini quota is exhausted — is in [`DEMO.md`](DEMO.md). To follow it,
-start the server locally (`uvicorn app.main:app --port 8080`), open
-`http://localhost:8080/` in a browser, and walk the script. The workspace is
-served by the same process, so no separate frontend setup is needed.
+Prefer driving the application yourself? A timed three-minute walkthrough —
+including the honest fallback path for when Gemini quota is exhausted — is in
+[`DEMO.md`](DEMO.md). To follow it, start the server locally
+(`uvicorn app.main:app --port 8080`), open `http://localhost:8080/` in a
+browser, and walk the script. The workspace is served by the same process, so
+no separate frontend setup is needed.
 
 ## Project layout
 
@@ -327,13 +376,22 @@ ORBIT-SEARCH/
 │       ├── index.html
 │       ├── styles.css
 │       └── app.js
-└── tests/
-    ├── conftest.py
-    ├── test_search.py
-    ├── test_research.py
-    ├── test_frontend.py
-    └── test_app_js_logic.py
+├── tests/
+│   ├── conftest.py
+│   ├── test_search.py
+│   ├── test_research.py
+│   ├── test_frontend.py
+│   └── test_app_js_logic.py
+└── demo-video/
+    ├── README.md       # how to regenerate the demo MP4
+    ├── render/         # frame, narration and assembly scripts
+    └── assets/         # text inputs the frame script renders
 ```
+
+The rendered MP4 and every generated media file (narration audio, intermediate
+clips, screenshot frames, caption files, the vendored FFmpeg binary) are
+gitignored; only the scripts and their small text inputs are versioned. See
+[`demo-video/README.md`](demo-video/README.md).
 
 ## Status
 

@@ -32,7 +32,7 @@ export GEMINI_API_KEY=...
 export GEMINI_MODEL=gemini-3.8-flash
 
 # Run server
-.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
+.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
 ```
 
 ## ORBIT Search Endpoints
