@@ -1,82 +1,16 @@
-# ORBIT — Autonomous Operations & Reliability Agent
+# ORBIT Search
 
-**ORBIT** is a standalone, general-purpose autonomous operations and reliability
-platform, operated here as a three-agent software factory (Architect → Builder
-→ Reviewer) cooperating through BAND.
+**ORBIT Search is an AI-powered research workspace that decomposes complex
+questions into focused web searches, gathers evidence through SerpApi, and uses
+Gemini to synthesize cited research answers.**
 
-ORBIT decomposes a written specification into implementation tasks, dispatches
-coding work, independently reviews builds, and supports rejection → revision →
-approval cycles. The delivered Stage 1 artifact is a restaurant
-table-reservation HTTP service in `stage-1/`; the factory run and supporting
-artifacts are preserved under `evidence/`.
+It is a small, self-contained FastAPI application with a dependency-free
+browser interface. Ask a research question, and ORBIT Search plans several
+searches, runs them against the live web, collects and deduplicates the
+evidence, and returns a structured answer in which every citation is a URL the
+run actually retrieved.
 
-## Submission scope
-
-This submission targets **Stage 1** of the Dark Factory Tablekeeper track.
-
-The shipped Stage 1 artifact is contained in `stage-1/` and includes the Docker
-configuration, execution guide, FastAPI service, database schema, and tests
-required for Stage 1.
-
-## Layout
-
-```text
-result/
-├── README.md
-├── FACTORY.md
-├── mandates/
-│   ├── architect.md
-│   ├── builder.md
-│   └── reviewer.md
-├── room.json
-├── stage-1/
-│   ├── Dockerfile
-│   ├── RUN.md
-│   ├── DEMO.md
-│   ├── requirements.txt
-│   ├── app/
-│   │   └── static/        # research workspace: index.html, styles.css, app.js
-│   └── tests/
-└── evidence/
-    ├── state.json
-    ├── events.jsonl
-    ├── builds/
-    └── reviews/
-```
-
-## Quick start
-
-### Local
-
-```bash
-cd stage-1
-
-uv venv .venv --python 3.12
-uv pip install --python .venv/bin/python -r requirements.txt
-
-.venv/bin/python -m pytest
-.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080
-```
-
-### Docker
-
-```bash
-cd stage-1
-
-docker build -t orbit-search .
-docker run --rm -p 8080:8080 -e PORT=8080 orbit-search
-
-curl http://localhost:8080/health
-```
-
-## ORBIT Search
-
-**ORBIT Search is an AI research agent that turns live web search into
-structured, source-grounded research.** It layers query planning, evidence
-collection, and cited answer synthesis on top of the Stage 1 service, and ships
-with a dependency-free research workspace served at `GET /`.
-
-### 1. Problem
+## Problem
 
 A single web search answers simple lookup questions, but real research
 questions ("Which approach should we use for X, and why?") need several
@@ -84,21 +18,11 @@ searches, cross-checking between sources, and a written answer that can be
 traced back to where each claim came from. Doing that by hand is slow; asking a
 plain LLM gives fluent text with no verifiable grounding.
 
-### 2. Who it is for
+ORBIT Search treats research as a pipeline — plan, search, collect, synthesize —
+so the output is inspectable instead of a black box, and so partial failures
+degrade honestly instead of discarding real evidence.
 
-Developers, analysts, and students who want a cited first draft of research on
-a current topic — with the sources in hand so they can verify it — rather than
-an unverifiable chatbot paragraph.
-
-### 3. Why it is multi-step
-
-One query rarely covers a real question. ORBIT Search treats research as a
-pipeline: plan several focused queries, run each against the live web, collect
-and deduplicate evidence, then synthesize an answer that is allowed to use only
-what was actually retrieved. Splitting planning, retrieval, and synthesis is
-what makes the output inspectable instead of a black box.
-
-### 4. Core capabilities
+## Key features
 
 - **Query planning** — the question is decomposed into focused search queries
   covering complementary angles; reworded near-duplicates are collapsed so no
@@ -108,71 +32,94 @@ what makes the output inspectable instead of a black box.
 - **Evidence collection** — results are deduplicated by normalized URL and the
   strongest sources are selected across queries.
 - **Cited synthesis** — an answer written from the collected evidence only,
-  with citations checked against the retrieved sources.
+  with citation URLs checked against the retrieved sources.
 - **Research coverage transparency** — the workspace shows which queries ran,
   how many sources each produced, and which sources the answer cited.
 - **Citation inspector** — clicking a citation in the answer locates the
   matching source card in the evidence list.
-- **Honest degradation** — partial or total upstream failures produce a
-  degraded response with the real evidence and a warning, never a fabricated
-  answer.
+- **Graceful degradation** — when Gemini planning or synthesis fails or times
+  out, the service returns the real collected evidence with an explicit
+  warning instead of an invented answer.
 
-### 5. What SerpApi does
-
-SerpApi is the live-search layer. Each planned query is executed via SerpApi
-and normalized into `{title, url, snippet, source, query}` records attributed
-to the query that found them. Without SerpApi there is no evidence layer at
-all — every answer is anchored in these retrieved results.
-
-### 6. What Gemini does
-
-Gemini is used twice per research run: first as a **planner** that turns the
-question into a set of search queries, then as a **synthesizer** that writes the
-structured answer. Synthesis is constrained to the collected evidence; the
-model is never asked to supply facts from memory, and citation URLs it emits
-are repaired and checked against the evidence before the response is returned.
-
-### 7. How a research run works
+## How a research run works
 
 1. `POST /research` receives `{question}`.
-2. Gemini plans a set of sub-queries.
+2. Gemini plans a set of sub-queries (with a deterministic fallback if the
+   planner is unavailable or times out).
 3. Each query is searched via SerpApi sequentially; per-query failures are
-   isolated and reported.
+   isolated and named in the response warning.
 4. Results are deduplicated by normalized URL and a balanced cross-query
    selection is kept as evidence.
-5. Gemini synthesizes an answer from the evidence.
+5. Gemini synthesizes an answer from the evidence only.
 6. Malformed citations are repaired; inline URLs not present in the evidence
    are flagged in a warning.
-7. The response carries `{question, queries, sources, answer, citations}`, plus
-   `"status": "degraded"` and a `"warning"` when anything upstream was limited.
+7. The response carries `{question, queries, sources, answer, citations}`,
+   plus `"status": "degraded"` and a `"warning"` when anything upstream was
+   limited.
 
-The browser workspace at `GET /` renders this full response, including the
-coverage view (queries executed, sources collected vs. cited, per-query source
-titles) built only from fields the endpoint already returns.
+## Architecture
 
-### 8. Citations — and their limits
+```text
+app/
+├── main.py       FastAPI application: app factory, /health, workspace
+│                 hosting at /, whitelisted /static/{asset} serving
+├── search.py     SerpApi client: query execution and normalization into
+│                 {title, url, snippet, source, query} records
+├── research.py   Research pipeline: Gemini planning (+ deterministic
+│                 fallback), per-query search loop, evidence dedup and
+│                 selection, Gemini synthesis, citation repair and
+│                 provenance checks, degraded-response handling
+├── errors.py     Shared APIError exception and the
+│                 {"error": {"code", "message"}} envelope handlers
+└── static/       Browser workspace: index.html, styles.css, app.js
+tests/           Focused regression suite (all upstream HTTP mocked)
+```
 
-A citation in the answer means the URL was **retrieved as part of this run's
-evidence** — the pipeline checks provenance, not truth. It does not verify that
-the source supports every claim attached to it. Answer text is synthesized by a
-model and must be reviewed against the linked sources; the UI states this
-explicitly in the footer.
+The pipeline is intentionally split into planning, retrieval, and synthesis
+stages so each stage's inputs and outputs are visible in the API response:
+which queries ran, which sources each produced, and which sources the answer
+cited.
 
-### 9. Errors and degraded responses
+## Technology stack
 
-- One or more failed search queries → `200` with real evidence from the
-  remaining queries and a warning naming the failed queries.
-- Gemini unavailable (rate limit, upstream 5xx) → `200` with
-  `"status": "degraded"`, `answer: null`, the collected evidence, and a warning
-  that includes the upstream status code. No answer is invented.
-- Invalid request shape → the standard `{"error": {"code", "message"}}`
-  envelope with `400`/`401`/`422` as appropriate.
-- SerpApi timeout → a genuine `504` failure for `/search`; in `/research`,
-  other queries may still produce evidence.
+| Layer | Technology |
+|---|---|
+| HTTP service | Python 3.12, FastAPI, Uvicorn |
+| Live web search | SerpApi (Google search results API) |
+| Query planning & synthesis | Google Gemini (`gemini-3.8-flash`) |
+| Outbound HTTP | httpx (async, with timeouts and bounded retries) |
+| Frontend | Vanilla HTML/CSS/JavaScript — no build step, no framework |
+| Tests | pytest (+ a Node.js sandbox for the frontend script) |
 
-### 10. Setup
+## Installation (macOS / Linux)
 
-Required environment variables:
+Requires Python 3.12 or later.
+
+```bash
+git clone https://github.com/MrSamarAhmed/ORBIT-SEARCH.git
+cd ORBIT-SEARCH
+```
+
+### Virtual environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+If you use [uv](https://docs.astral.sh/uv/), the equivalent is:
+
+```bash
+uv venv .venv --python 3.12
+uv pip install --python .venv/bin/python -r requirements.txt
+```
+
+## Environment variables
+
+ORBIT Search reads its credentials from the process environment; it does not
+auto-load `.env` files. Copy `.env.example`, fill in your keys, and export the
+variables — or pass them with `docker run -e`.
 
 | Variable | Required | Default |
 |---|---|---|
@@ -181,14 +128,26 @@ Required environment variables:
 | `GEMINI_MODEL` | no | `gemini-3.8-flash` |
 
 `GEMINI_MODEL` is read at application import time, so changing it requires
-restarting the application. See `.env.example` for a template — never put real
-API keys in it. Keys are read server-side only; the frontend never sees them.
+restarting the application. Never put real API keys in `.env.example`.
 
 ```bash
 export SERPAPI_API_KEY=...
 export GEMINI_API_KEY=...
+```
 
-# Workspace (browser)
+## Starting the application
+
+```bash
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}
+```
+
+Then:
+
+```bash
+curl http://localhost:8080/health
+# {"status":"ok"}
+
+# Browser workspace
 open http://localhost:8080/
 
 # Search (GET with a query parameter)
@@ -200,9 +159,12 @@ curl -X POST http://localhost:8080/research \
   -d '{"question": "Best AI for predictive maintenance?"}'
 ```
 
-Docker — pass the keys at runtime; never bake them into the image:
+### Docker
 
 ```bash
+docker build -t orbit-search .
+
+# API keys are passed at runtime; never baked into the image.
 docker run --rm -p 8080:8080 \
   -e PORT=8080 \
   -e SERPAPI_API_KEY=... \
@@ -210,117 +172,170 @@ docker run --rm -p 8080:8080 \
   orbit-search
 ```
 
-### 11. Endpoints
+## Running the tests
+
+All upstream HTTP is mocked — the suite makes no real SerpApi or Gemini calls
+and consumes no quota.
+
+```bash
+.venv/bin/python -m pytest -q tests/test_search.py tests/test_research.py tests/test_frontend.py tests/test_app_js_logic.py
+```
+
+That is 64 tests: search 8, research 42, frontend 6, and 8 app.js behavior
+tests. The app.js tests run the real frontend script with mocked fetch in a
+Node.js sandbox and skip automatically when Node.js is not installed.
+
+## API endpoints
 
 | Endpoint | Description |
 |---|---|
 | `GET /` | Research workspace (dependency-free HTML/CSS/JS) |
 | `GET /search?q=...` | Live web search normalized to JSON |
 | `POST /research` | Full research pipeline: plan → search → evidence → cited answer |
-| `GET /docs` | Auto-generated OpenAPI UI |
 | `GET /health` | Liveness check |
+| `GET /docs` | Auto-generated OpenAPI UI |
+| `GET /openapi.json` | OpenAPI schema |
 
-### 12. Testing
+### `GET /search?q=<query>`
 
-Focused regression tests (all upstream HTTP mocked — no real SerpApi or Gemini
-calls, no quota consumed):
-
-```bash
-.venv/bin/python -m pytest -q tests/test_search.py tests/test_research.py tests/test_frontend.py tests/test_app_js_logic.py
+```json
+{
+  "query": "predictive maintenance ai",
+  "results": [
+    {
+      "position": 1,
+      "title": "...",
+      "url": "https://...",
+      "snippet": "...",
+      "source": "..."
+    }
+  ]
+}
 ```
 
-The 64 focused tests (search 8, research 42, frontend 6, app.js behavior 8)
-currently pass; the app.js tests run the real frontend script with mocked
-fetch in a Node.js sandbox and skip automatically when Node.js is not
-installed. The full `.venv/bin/python -m pytest` run also collects
-`tests/test_tablekeeper.py`, which has 19 known historical failures due to
-stale test expectations; those predate the search/research work and are not
-regressions. Full execution details are in `stage-1/RUN.md`.
+A missing `SERPAPI_API_KEY` returns `500 configuration_error`; a SerpApi
+timeout returns `504 upstream_timeout`.
 
-### 13. Known limitations
+### `POST /research`
+
+Request body: `{"question": "..."}`. A missing or blank question returns
+`422 validation_failed`; a non-string question, invalid JSON, or a non-object
+body returns `400 malformed_request`. Errors use the shared envelope
+`{"error": {"code", "message"}}`.
+
+Success response:
+
+```json
+{
+  "question": "Best AI for predictive maintenance?",
+  "queries": ["...", "..."],
+  "sources": [
+    {
+      "title": "...",
+      "url": "https://...",
+      "snippet": "...",
+      "source": "...",
+      "query": "..."
+    }
+  ],
+  "answer": "...",
+  "citations": ["https://..."]
+}
+```
+
+## Graceful degradation
+
+The application never trades honesty for a confident-looking answer:
+
+- **One or more failed search queries** → `200` with the real evidence from
+  the remaining queries and a warning naming the failed queries.
+- **Gemini planning unavailable or timed out** → the run continues with a
+  deterministic keyword-based query plan; the evidence and answer are
+  unaffected.
+- **Gemini synthesis unavailable or timed out** → `200` with
+  `"status": "degraded"`, `answer: null`, and the full collected evidence
+  (sources, citations, queries) preserved, plus a warning explaining what
+  failed. **The retrieved evidence is never discarded when synthesis fails.**
+- **Answer cites a URL outside the evidence** → the response is still
+  returned, with a warning flagging the unproven citation.
+
+Degraded responses keep the same fields as success responses and add
+`"status": "degraded"` plus a `"warning"` string; success responses carry no
+extra fields.
+
+## Citations — and their limits
+
+A citation in the answer means the URL was **retrieved as part of this run's
+evidence** — the pipeline checks provenance, not truth. It does not verify
+that a source actually supports every claim attached to it. Answer text is
+synthesized by a model from search snippets and must be reviewed against the
+linked sources; the workspace states this explicitly.
+
+## Known limitations
 
 - **No caching** — identical questions re-run the full pipeline (cost and
   latency are paid each time).
 - **Sequential searches** — queries run one at a time, not in parallel.
 - **Evidence is snippet-level** — pages are not fetched or fully read.
-- **Citations are provenance-checked, not claim-verified** (see §8).
+- **Citations are provenance-checked, not claim-verified** (see above).
 - **Synthesis depends on Gemini quota** — when quota is exhausted the service
   returns a degraded, evidence-only response with `answer: null`.
-- **Local, single-process service** — SQLite storage and an in-process rate
-  limiter; not built for multi-user deployment.
+- **Local, single-process service** — designed for local and demo use, not
+  for multi-user production deployment; there is no authentication.
+- **No persistence** — research runs are stateless; nothing is stored
+  between requests.
 
-### Demo
+## Security notes
 
-A three-minute demonstration script, including an honest fallback plan for when
-Gemini quota is exhausted, is in `stage-1/DEMO.md`.
+- API keys are read from environment variables only; they are never
+  hard-coded, logged, or sent to the frontend.
+- `.env` is gitignored; `.env.example` contains variable names only.
+- Static file serving is restricted to an allowlist (`styles.css`, `app.js`)
+  plus the `index.html` workspace — arbitrary path traversal is rejected.
+- Search evidence returned by SerpApi is treated as untrusted external data;
+  synthesis instructions tell the model to ignore any instructions embedded
+  inside it.
+- Upstream errors are reported with fixed-format messages and status codes;
+  response headers and bodies are never echoed into warnings.
 
-## Official Stage 1 verification
+## Demo
 
-The final Stage 1 artifact was validated with the official Dark Factory
-harness.
+A timed three-minute demonstration script — including the honest fallback path
+for when Gemini quota is exhausted — is in [`DEMO.md`](DEMO.md). To follow it,
+start the server locally (`uvicorn app.main:app --port 8080`), open
+`http://localhost:8080/` in a browser, and walk the script. The workspace is
+served by the same process, so no separate frontend setup is needed.
 
-| Check | Result |
-|---|---|
-| Official Stage 1 test suite | **120/120 passed** |
-| Official Stage 1 failures | **0** |
-| Official Stage 1 errors | **0** |
-| Official isolated Stage 1 harness run | **PASS** |
-| Factory Gates 1 and 2 | **PASS** |
-| Gate 4 mandate validation | **PASS** |
-| Stage 1 Docker build / serve / health | **PASS** |
+## Project layout
 
-The official Stage 1 validation collected:
+```text
+ORBIT-SEARCH/
+├── README.md
+├── RUN.md              # detailed execution guide
+├── DEMO.md             # timed demo script
+├── .env.example        # environment variable template (no values)
+├── .gitignore
+├── requirements.txt
+├── Dockerfile
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── search.py
+│   ├── research.py
+│   ├── errors.py
+│   └── static/
+│       ├── index.html
+│       ├── styles.css
+│       └── app.js
+└── tests/
+    ├── conftest.py
+    ├── test_search.py
+    ├── test_research.py
+    ├── test_frontend.py
+    └── test_app_js_logic.py
+```
 
-- `test_health_reset_auth.py` — 12/12
-- `test_reservations.py` — 37/37
-- `test_restaurants_availability.py` — 18/18
-- `test_retries_time_input.py` — 20/20
-- `test_sample.py` — 20/20
-- `test_seeded_state.py` — 13/13
+## Status
 
-**Total: 120/120 passed.**
-
-The factory's original development artifacts contain an earlier 19-test suite.
-Those historical tests are preserved as part of the factory evidence and are
-not the final official Stage 1 validation reported above.
-
-## Factory evidence
-
-The factory run recorded:
-
-- 3 ordered tasks
-- 5 build attempts/artifacts
-- 5 review records
-- rejection → revision → approval recovery cycles
-- independent Reviewer verification
-
-The detailed factory history is documented in `FACTORY.md`, with supporting
-records in `evidence/`.
-
-## Honesty and provenance
-
-`room.json` is a faithful export of the BAND room's **metadata and
-participants** via the BAND REST API. The API exposes no message-history
-endpoint, so the factory protocol history is documented through `evidence/`
-(`state.json`, `events.jsonl`, and the build and review artifacts). No
-transcript has been synthesized.
-
-The development history includes two **operator-injected** task-3 rejection
-verdicts through the protocol's normal verdict message path. These were used to
-exercise the rejection → revision → review workflow and to route a real,
-independently-diagnosed test-timestamp defect through the factory. Both
-injections are disclosed in `FACTORY.md`; the resulting repair was built and
-independently reviewed by the agents.
-
-This submission does not claim that every development action was autonomous.
-The factory workflow, agent collaboration, recovery cycle, and independent
-review are documented in the supplied evidence.
-
-No API keys, tokens, or secrets are included in this package. Factory
-credentials live in the factory's own gitignored `.env`.
-
-## Reproducibility
-
-The shipped artifact is contained in `stage-1/`.
-
-See `stage-1/RUN.md` for the complete local and Docker execution instructions.
+ORBIT Search runs locally from this repository (or via Docker). It has not
+been deployed to any hosted environment.
