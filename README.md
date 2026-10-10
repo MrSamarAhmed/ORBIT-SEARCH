@@ -14,9 +14,9 @@ citation is a URL the run actually retrieved.
 
 Watch the ORBIT Search demonstration:
 
-[Watch the demo video](YOUR_VIDEO_URL)
+[Watch the demo video](https://drive.google.com/file/d/1Dqts1IbtJBCVsi2bnr4z5Y0IWkfTvSvi/view?usp=drive_link)
 
-> `YOUR_VIDEO_URL` is a placeholder. The recorded MP4 exists in this repository
+> `https://drive.google.com/file/d/1Dqts1IbtJBCVsi2bnr4z5Y0IWkfTvSvi/view?usp=drive_link` is a placeholder. The recorded MP4 exists in this repository
 > at `demo-video/ORBIT_Search_SerpApi_Hackathon_Demo.mp4` (2 minutes 1 second,
 > 1920×1080, narrated and subtitled) and has **not** been uploaded to a public
 > URL yet, so the link above does not resolve until it is hosted.
