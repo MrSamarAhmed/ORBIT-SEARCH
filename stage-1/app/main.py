@@ -1,11 +1,12 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 import re
 import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from app.db import init_db, get_connection, transaction
 from app.errors import register_exception_handlers, APIError
@@ -17,6 +18,8 @@ from app.restaurants import router as restaurants_router
 from app.availability import router as availability_router
 from app.reservations import router as reservations_router
 from app.moves import router as moves_router
+from app.search import router as search_router
+from app.research import router as research_router
 
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+$")
@@ -102,7 +105,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Tablekeeper",
+    title="ORBIT Search",
     lifespan=lifespan,
 )
 
@@ -117,6 +120,8 @@ app.include_router(restaurants_router)
 app.include_router(availability_router)
 app.include_router(reservations_router)
 app.include_router(moves_router)
+app.include_router(search_router)
+app.include_router(research_router)
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +131,40 @@ app.include_router(moves_router)
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Research workspace frontend
+# ---------------------------------------------------------------------------
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+ASSET_TYPES = {
+    "styles.css": "text/css; charset=utf-8",
+    "app.js": "text/javascript; charset=utf-8",
+}
+
+
+@app.get("/", response_class=HTMLResponse)
+def frontend_index():
+    return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/static/{asset}")
+def frontend_asset(asset: str):
+    media_type = ASSET_TYPES.get(asset)
+
+    if media_type is None:
+        raise APIError(
+            404,
+            "not_found",
+            f"Unknown asset: {asset}",
+        )
+
+    return Response(
+        (STATIC_DIR / asset).read_text(encoding="utf-8"),
+        media_type=media_type,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +248,7 @@ async def auth_signup(request: Request):
     password = password.strip()
     display_name = display_name.strip()
 
-    # Required by the Tablekeeper contract.
+    # Required by the Stage 1 API contract.
     if not email:
         raise APIError(
             422,

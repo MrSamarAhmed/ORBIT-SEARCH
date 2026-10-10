@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ORBIT Search — AI research agent</title>
+  <meta name="description" content="ORBIT Search turns a natural-language question into planned web searches, collected evidence, and a structured answer with verified citations.">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#results">Skip to results</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">◉</span>
+        <div>
+          <p class="brand-name">ORBIT Search</p>
+          <p class="brand-tag">An AI research agent that turns live web search into structured, source-grounded research.</p>
+        </div>
+      </div>
+      <nav class="header-nav" aria-label="Service">
+        <a href="/docs" target="_blank" rel="noopener noreferrer">API docs</a>
+        <a href="/health" target="_blank" rel="noopener noreferrer">Health</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="ask-panel" aria-labelledby="ask-heading">
+      <h1 id="ask-heading" class="visually-hidden">Ask a research question</h1>
+      <form id="ask-form" novalidate>
+        <label class="ask-label" for="question">What do you want to research?</label>
+        <textarea id="question" name="question" rows="3" required
+          placeholder="e.g. How are Indian startups applying AI in agriculture?"
+          aria-describedby="ask-hint"></textarea>
+        <p id="ask-hint" class="ask-hint">
+          ORBIT plans sub-questions, searches the live web, and writes a structured answer
+          grounded only in the sources it actually retrieved.
+        </p>
+        <div class="ask-actions">
+          <button type="submit" id="ask-button">Research</button>
+          <p class="ask-note">Can take up to a minute — searching and reading sources takes time.</p>
+        </div>
+      </form>
+      <div class="examples" aria-label="Example questions">
+        <p class="examples-label">Try:</p>
+        <button type="button" class="example-chip">How are Indian startups applying AI in agriculture?</button>
+        <button type="button" class="example-chip">What is agentic AI and how is it used in enterprise software?</button>
+        <button type="button" class="example-chip">What are the best practices for REST API idempotency?</button>
+      </div>
+    </section>
+
+    <div id="status-banner" class="status-banner" role="status" aria-live="polite" hidden></div>
+
+    <section id="results" class="results" aria-label="Research results" tabindex="-1">
+      <div id="empty-state" class="empty-state">
+        <h2 class="empty-title">From question to cited answer</h2>
+        <ol class="pipeline" aria-label="How ORBIT Search works">
+          <li class="pipeline-step">
+            <span class="pipeline-num" aria-hidden="true">1</span>
+            <div><h3>Question</h3><p>You ask one natural-language question.</p></div>
+          </li>
+          <li class="pipeline-step">
+            <span class="pipeline-num" aria-hidden="true">2</span>
+            <div><h3>Plan</h3><p>An LLM planner breaks it into focused search queries.</p></div>
+          </li>
+          <li class="pipeline-step">
+            <span class="pipeline-num" aria-hidden="true">3</span>
+            <div><h3>Search</h3><p>Each query runs against the live web via SerpApi.</p></div>
+          </li>
+          <li class="pipeline-step">
+            <span class="pipeline-num" aria-hidden="true">4</span>
+            <div><h3>Evidence</h3><p>Results are deduplicated and the strongest sources are kept.</p></div>
+          </li>
+          <li class="pipeline-step">
+            <span class="pipeline-num" aria-hidden="true">5</span>
+            <div><h3>Synthesis</h3><p>An LLM writes the answer using only the collected evidence.</p></div>
+          </li>
+          <li class="pipeline-step">
+            <span class="pipeline-num" aria-hidden="true">6</span>
+            <div><h3>Citations</h3><p>Inline citation links are checked against the retrieved sources.</p></div>
+          </li>
+        </ol>
+        <p class="empty-honesty">
+          Honest by design: if synthesis is unavailable, you still get the planned queries and
+          the real sources retrieved — never a fabricated answer.
+        </p>
+      </div>
+
+      <div id="loading-state" class="loading-state" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <p class="loading-title">Research in progress…</p>
+        <p class="loading-detail">Searching the live web and reading sources. This can take up to a minute.</p>
+      </div>
+
+      <div id="error-state" class="error-state" hidden>
+        <h2 class="error-title">The research request failed</h2>
+        <p id="error-message"></p>
+        <p class="error-hint">You can adjust the question and try again.</p>
+      </div>
+
+      <div id="answer-empty" class="answer-empty" hidden>
+        <h2>No synthesized answer for this run</h2>
+        <p id="answer-empty-detail"></p>
+      </div>
+
+      <article id="answer-panel" class="answer-panel" hidden>
+        <div class="answer-question-wrap">
+          <p class="eyebrow">Question</p>
+          <h2 id="answer-question" class="answer-question"></h2>
+        </div>
+        <p class="eyebrow">Answer</p>
+        <div id="answer-body" class="answer-body"></div>
+      </article>
+
+      <aside id="coverage-panel" class="coverage-panel" hidden>
+        <section class="coverage-queries" aria-labelledby="queries-heading">
+          <h2 id="queries-heading" class="panel-title">Research queries</h2>
+          <ol id="queries-list" class="queries-list"></ol>
+        </section>
+        <section class="coverage-stats" aria-labelledby="coverage-heading">
+          <h2 id="coverage-heading" class="panel-title">Research coverage</h2>
+          <dl class="stats-grid">
+            <div class="stat"><dt>Queries executed</dt><dd id="stat-queries">0</dd></div>
+            <div class="stat"><dt>Sources collected</dt><dd id="stat-collected">0</dd></div>
+            <div class="stat"><dt>Sources cited</dt><dd id="stat-cited">0</dd></div>
+            <div class="stat"><dt>Collected but not cited</dt><dd id="stat-uncited">0</dd></div>
+          </dl>
+          <div id="query-coverage" class="query-coverage"></div>
+        </section>
+      </aside>
+
+      <section id="sources-panel" class="sources-panel" hidden aria-labelledby="sources-heading">
+        <h2 id="sources-heading" class="panel-title">Sources &amp; evidence</h2>
+        <ul id="sources-list" class="sources-list"></ul>
+      </section>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>
+        ORBIT Search checks citations for URL provenance against the sources it actually
+        retrieved; it does not verify that a source supports every associated claim.
+        Always review the linked sources before relying on an answer.
+      </p>
+      <p class="footer-api">Results are produced by POST /research — see <a href="/docs" target="_blank" rel="noopener noreferrer">API docs</a>.</p>
+    </div>
+  </footer>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

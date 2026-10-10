@@ -1,10 +1,13 @@
 # FACTORY — ORBIT, the three-agent software factory
 
-ORBIT is an autonomous software factory built for the WeAreDevelopers × BAND
-"Dark Factory" hackathon. It turns a written specification into a shipped
-artifact using **three distinct coding-agent seats** cooperating in a real BAND
-chat room, over a plain-text protocol (`ORBIT:SPEC / PLAN / TASK / REVIEW /
-VERDICT / REVISE / DONE / FAIL`).
+ORBIT — the **Autonomous Operations & Reliability Agent** — is a standalone,
+general-purpose autonomous software factory. It turns a written specification
+into a shipped artifact using **three distinct coding-agent seats** cooperating
+in a real BAND chat room, over a plain-text protocol (`ORBIT:SPEC / PLAN / TASK
+/ REVIEW / VERDICT / REVISE / DONE / FAIL`).
+
+ORBIT was originally built for the WeAreDevelopers × BAND "Dark Factory"
+hackathon; the delivered run documented below is that competition's submission.
 
 ## The three seats
 
