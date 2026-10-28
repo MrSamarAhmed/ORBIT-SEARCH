@@ -235,9 +235,14 @@ Python 3.12.16 and Node 20.20.2: **81 passed, 0 skipped**, one
 Starlette/httpx deprecation warning. The app.js tests run the real frontend script with
 mocked fetch in a Node sandbox; they fail loudly when Node is missing rather
 than skipping, so a frontend-less run cannot look green. That gate is enforced
-by the test file itself (`tests/test_app_js_logic.py`), not by CI — there is no
-CI on this repository, and a draft `.github/workflows/ci.yml` that would install
-Node 20 and run the suite exists locally without being committed.
+by the test file itself (`tests/test_app_js_logic.py`), not by the workflow:
+`.github/workflows/ci.yml` installs Python 3.12 and Node 20 and runs `pytest -q`,
+so the 9-error path can never fire on CI — it was verified separately by running
+the suite with Node removed from `PATH` (exit 1, 72 passed, 9 errors) and again with
+`ORBITSEARCH_ALLOW_NO_NODE=1` (exit 0, 72 passed, 9 skipped). Note that
+`requirements.txt` is lower-bound pinned, so CI installs the newest resolvable
+FastAPI/Starlette/pytest, and the workflow covers neither the repo Dockerfile nor
+any Python or Node version beyond the one pair it declares.
 
 ## API endpoints
 
