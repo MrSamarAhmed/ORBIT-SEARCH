@@ -267,8 +267,11 @@ def test_research_gemini_synthesis_failure(client, monkeypatch):
 
     res = client.post("/research", json={"question": "Any question"})
 
-    assert res.status_code == 502
-    assert res.json()["error"]["code"] == "upstream_error"
+    assert res.status_code == 200
+    assert res.json()["status"] == "degraded"
+    assert res.json()["answer"] is None
+    assert res.json()["sources"][0]["url"] == "https://example.com/x"
+    assert "status 500" in res.json()["warning"]
 
 
 def test_research_unusable_plan(client, monkeypatch):

@@ -137,14 +137,31 @@ curl http://localhost:8080/health
 ## Tests
 
 ```bash
-# Focused search/research/frontend regression suite (64 tests)
-.venv/bin/python -m pytest -q tests/test_search.py tests/test_research.py tests/test_frontend.py tests/test_app_js_logic.py
+# Full regression suite, including provider-boundary checks (81 tests)
+.venv/bin/python -m pytest -q
 ```
 
 `tests/test_app_js_logic.py` exercises `app/static/app.js` (including the
 degraded HTTP 200 / `answer: null` response) in a fake-DOM sandbox under
-Node.js with mocked fetch; it skips automatically when Node.js is not
-installed.
+Node.js with mocked fetch. It needs Node on `PATH` and fails without it, so a
+run that silently skipped the frontend cannot look green; use
+`ORBITSEARCH_ALLOW_NO_NODE=1` only to skip those 9 tests deliberately.
+
+Verified 2026-10-28 in an isolated Linux container, Python 3.12.16 + Node
+20.20.2: 81 passed, 0 skipped, one Starlette/httpx deprecation warning. Missing
+Node produced 9 errors; explicit opt-in produced 9 skips. The same day, a real
+browser loaded the unmodified `index.html` + `app.js` against a stub that
+returned synthetic `/research` payloads (no SerpApi or Gemini access) for
+degraded, cited and uncited answers, including queries named `constructor` and
+`__proto__`; all three rendered as expected — degraded showed the banner and the
+empty-answer state with the answer panel hidden, and the cited/uncited cases
+reported 2/3 and 0/5 in `stat-cited`/`stat-uncited`.
+These checks do not validate live SerpApi/Gemini access or model availability.
+
+The API `citations` field lists selected evidence, not necessarily URLs cited
+in the answer. The UI counts selected URLs mentioned in answer text; this is
+a heuristic, not claim verification. Avoid verbose HTTP client logging:
+SerpApi credentials are sent as query parameters and can appear in request logs.
 
 All upstream HTTP is mocked in the test suite — no real SerpApi or Gemini
 calls are made and no quota is consumed.

@@ -7,8 +7,8 @@ synthesis with citations.**
 It is a small, self-contained FastAPI application with a dependency-free
 browser interface. Ask a research question, and ORBIT Search plans several
 searches, runs them against the live web through SerpApi, collects and
-deduplicates the evidence, and returns a structured answer in which every
-citation is a URL the run actually retrieved.
+deduplicates the evidence, and returns a structured answer with URL-provenance
+checks. Unknown citation URLs are flagged, not removed or verified.
 
 ## Demo
 
@@ -73,9 +73,9 @@ instead of generating an answer it cannot support.
   how many sources each produced, and which sources the answer cited.
 - **Citation inspector** — clicking a citation in the answer locates the
   matching source card in the evidence list.
-- **Graceful degradation** — when Gemini planning or synthesis fails or times
-  out, the service returns the real collected evidence with an explicit
-  warning instead of an invented answer.
+- **Graceful degradation** — Gemini planning falls back on 429/503 or timeout;
+  other planning errors stop the run. Provider errors during synthesis preserve
+  collected evidence with an explicit warning instead of an invented answer.
 - **Browser-based interface** — a dependency-free research workspace served by
   the same FastAPI process; no frontend build step.
 - **Automated tests** — a focused pytest suite that mocks all upstream HTTP,
@@ -136,8 +136,10 @@ cited.
 - Python 3.12 or later
 - A [SerpApi](https://serpapi.com) API key
 - A [Google Gemini](https://aistudio.google.com/apikey) API key
-- Optional: Docker, and Node.js (the frontend behaviour tests run the real
-  `app.js` in a Node sandbox and skip automatically when Node.js is absent)
+- Optional: Docker
+- Node.js for `tests/test_app_js_logic.py`, which runs the real `app.js` in a
+  Node sandbox. Without Node those 9 tests fail loudly rather than pass
+  unnoticed; set `ORBITSEARCH_ALLOW_NO_NODE=1` to skip them on purpose.
 
 ## Installation (macOS / Linux)
 
@@ -224,12 +226,18 @@ All upstream HTTP is mocked — the suite makes no real SerpApi or Gemini calls
 and consumes no quota.
 
 ```bash
-.venv/bin/python -m pytest -q tests/test_search.py tests/test_research.py tests/test_frontend.py tests/test_app_js_logic.py
+.venv/bin/python -m pytest -q
 ```
 
-That is 64 tests: search 8, research 42, frontend 6, and 8 app.js behavior
-tests. The app.js tests run the real frontend script with mocked fetch in a
-Node.js sandbox and skip automatically when Node.js is not installed.
+That is 81 tests: search 8, research 42, frontend 6, provider boundaries 16,
+and 9 app.js behavior tests. Verified on 2026-10-28 in isolated Linux with
+Python 3.12.16 and Node 20.20.2: **81 passed, 0 skipped**, one
+Starlette/httpx deprecation warning. The app.js tests run the real frontend script with
+mocked fetch in a Node sandbox; they fail loudly when Node is missing rather
+than skipping, so a frontend-less run cannot look green. That gate is enforced
+by the test file itself (`tests/test_app_js_logic.py`), not by CI — there is no
+CI on this repository, and a draft `.github/workflows/ci.yml` that would install
+Node 20 and run the suite exists locally without being committed.
 
 ## API endpoints
 
@@ -295,9 +303,9 @@ The application never trades honesty for a confident-looking answer:
 
 - **One or more failed search queries** → `200` with the real evidence from
   the remaining queries and a warning naming the failed queries.
-- **Gemini planning unavailable or timed out** → the run continues with a
-  deterministic keyword-based query plan; the evidence and answer are
-  unaffected.
+- **Gemini planning returns 429/503 or times out** → the run continues with a
+  deterministic keyword-based query plan. Other planning errors stop the run;
+  the fallback itself currently has no response warning.
 - **Gemini synthesis unavailable or timed out** → `200` with
   `"status": "degraded"`, `answer: null`, and the full collected evidence
   (sources, citations, queries) preserved, plus a warning explaining what
@@ -311,17 +319,24 @@ extra fields.
 
 ## Citations — and their limits
 
-A citation in the answer means the URL was **retrieved as part of this run's
-evidence** — the pipeline checks provenance, not truth. It does not verify
-that a source actually supports every claim attached to it. Answer text is
-synthesized by a model from search snippets and must be reviewed against the
-linked sources; the workspace states this explicitly.
+The API `citations` field contains **selected evidence URLs**, including when
+`answer` is null. It is not a list of citations actually used by the model.
+The workspace counts selected URLs mentioned in the answer using a URL-matching
+heuristic. Unknown answer URLs remain in the answer with a provenance warning.
+Neither check verifies that a source supports the attached claim. Review model
+text against the linked sources; synthesis uses snippets, not full pages.
 
 ## Known limitations
 
 - **No caching** — identical questions re-run the full pipeline (cost and
   latency are paid each time).
 - **Sequential searches** — queries run one at a time, not in parallel.
+- **No total research deadline** — per-request timeouts and retries do not
+  bound the complete workflow duration.
+- **Live integration unverified in this audit** — tests mock both providers;
+  the configured Gemini model and credentials were not exercised live.
+- **Dependencies are not locked** — clean installation passed, but no
+  dependency vulnerability or full Git-history secret scan was performed.
 - **Evidence is snippet-level** — pages are not fetched or fully read.
 - **Citations are provenance-checked, not claim-verified** (see above).
 - **Synthesis depends on Gemini quota** — when quota is exhausted the service
@@ -335,8 +350,10 @@ linked sources; the workspace states this explicitly.
 
 ## Security notes
 
-- API keys are read from environment variables only; they are never
-  hard-coded, logged, or sent to the frontend.
+- API keys are read from environment variables and not sent to the frontend.
+  **Do not enable verbose HTTP client logging:** SerpApi uses a query-string
+  credential, which HTTPX request logs can expose. Logging redaction remains
+  unresolved; provider error bodies are not reflected to callers.
 - `.env` is gitignored; `.env.example` contains variable names only.
 - Static file serving is restricted to an allowlist (`styles.css`, `app.js`)
   plus the `index.html` workspace — arbitrary path traversal is rejected.

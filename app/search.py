@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter
@@ -29,6 +30,32 @@ def normalize_payload(payload: dict, query: str) -> dict:
     for fallback_position, item in enumerate(organic, start=1):
         if not isinstance(item, dict):
             continue
+        for field in ("link", "title", "snippet", "source", "displayed_link"):
+            value = item.get(field)
+            if value is not None and not isinstance(value, str):
+                raise APIError(
+                    502,
+                    "upstream_error",
+                    "SerpApi returned an unexpected response shape",
+                )
+        link = item.get("link")
+        if link is not None:
+            try:
+                parsed = urlsplit(link)
+                if (
+                    parsed.scheme not in ("http", "https")
+                    or not parsed.netloc
+                    or not parsed.hostname
+                ):
+                    raise ValueError
+                # Accessing port validates its syntax and range.
+                parsed.port
+            except ValueError:
+                raise APIError(
+                    502,
+                    "upstream_error",
+                    "SerpApi returned an invalid result URL",
+                ) from None
         results.append(
             {
                 "position": item.get("position", fallback_position),
@@ -70,7 +97,7 @@ async def run_search(query: str) -> dict:
         raise APIError(
             502,
             "upstream_error",
-            f"SerpApi request failed with status {response.status_code}",
+            "SerpApi request failed",
         )
 
     try:
@@ -86,7 +113,7 @@ async def run_search(query: str) -> dict:
         )
 
     if payload.get("error"):
-        raise APIError(502, "upstream_error", f"SerpApi error: {payload['error']}")
+        raise APIError(502, "upstream_error", "SerpApi request failed")
 
     return normalize_payload(payload, query)
 

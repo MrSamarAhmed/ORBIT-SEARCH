@@ -5,10 +5,13 @@ mocked fetch responses — no HTTP server and no live API calls. Covers the
 degraded (HTTP 200, answer null) response shape and the distinct failure
 classes: transport failure, HTTP error, unreadable JSON, rendering error.
 
-Skips automatically when Node.js is not installed.
+Without Node.js on PATH these tests fail rather than skip: a green run that
+silently left the whole frontend unexercised is worse than a red one. Set
+ORBITSEARCH_ALLOW_NO_NODE=1 to opt in to the skip deliberately.
 """
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,8 +20,10 @@ import pytest
 
 APP_JS = Path(__file__).resolve().parents[1] / "app" / "static" / "app.js"
 NODE = shutil.which("node")
+ALLOW_NO_NODE = os.environ.get("ORBITSEARCH_ALLOW_NO_NODE") == "1"
 
-pytestmark = pytest.mark.skipif(NODE is None, reason="Node.js not available")
+if NODE is None and ALLOW_NO_NODE:
+    pytestmark = pytest.mark.skip(reason="Node.js not available, skip opted in")
 
 DRIVER = r'''
 "use strict";
@@ -39,8 +44,16 @@ function makeElement(tag) {
     value: "",
     disabled: false,
     children: [],
+    // app.js counts `childNodes` (elements and text nodes), so the stand-in has to
+    // expose both lists: `children` is what the assertions read, `childNodes` is
+    // what the production code reads.
+    childNodes: [],
     handlers: {},
-    appendChild(child) { el.children.push(child); return child; },
+    appendChild(child) {
+      el.children.push(child);
+      el.childNodes.push(child);
+      return child;
+    },
     remove() {},
     setAttribute(key, val) { el[key] = val; },
     addEventListener(type, fn) {
@@ -171,6 +184,7 @@ async function runScenario(fetchImpl, prepare) {
   await handler({ preventDefault() {} });
   const els = ctx.els;
   return {
+    submittedQuestion: els["question"].value,
     errorHidden: els["error-state"].hidden,
     errorMessage: els["error-message"].textContent,
     bannerText: els["status-banner"].hidden
@@ -201,6 +215,18 @@ async function runScenario(fetchImpl, prepare) {
 
   results.success = await runScenario(
     onlyResearch(() => httpResponse(200, SUCCESS_PAYLOAD))
+  );
+
+  results.prototypeQuery = await runScenario(
+    onlyResearch(() => httpResponse(200, payloadWith({
+      queries: ["constructor", "__proto__"],
+      sources: [
+        {title: "Constructor", query: "constructor", url: "https://example.org/constructor"},
+        {title: "Prototype", query: "__proto__", url: "https://example.org/prototype"}
+      ],
+      citations: ["https://example.org/constructor"],
+      answer: "No source URL is mentioned here."
+    })))
   );
 
   results.networkDown = await runScenario(() => {
@@ -261,6 +287,11 @@ def run_driver(tmp_path: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def results(tmp_path_factory):
+    if NODE is None:
+        pytest.fail(
+            "app.js needs Node.js on PATH to run. Install Node, or set "
+            "ORBITSEARCH_ALLOW_NO_NODE=1 to skip these tests deliberately."
+        )
     return run_driver(tmp_path_factory.mktemp("appjs"))
 
 
@@ -277,8 +308,8 @@ def test_degraded_200_renders_evidence_not_error(results):
     assert r["coverageHidden"] is False
     assert r["statQueries"] == "3"
     assert r["statCollected"] == "15"
-    assert r["statCited"] == "5"
-    assert r["statUncited"] == "10"
+    assert r["statCited"] == "0"
+    assert r["statUncited"] == "15"
     assert r["sourcesCount"] == 15
     assert r["buttonDisabled"] is False
 
@@ -288,11 +319,25 @@ def test_success_200_renders_answer(results):
     assert r["errorHidden"] is True
     assert r["answerPanelHidden"] is False
     assert r["answerEmptyHidden"] is True
-    assert r["answerQuestion"] == QUESTION
+    # The literal, not the value the driver itself echoed back: an answer header
+    # built from anything else has to fail here.
+    assert r["answerQuestion"] == "How is agentic AI used in enterprises?"
     assert r["bannerText"] == ""
     assert r["statCollected"] == "15"
+    # Five citations are offered but the answer text names only articles/1, so a
+    # cited counter that never moved off zero, or one that counted all five, fails.
+    assert r["statCited"] == "1"
+    assert r["statUncited"] == "14"
     assert r["sourcesCount"] == 15
     assert r["buttonDisabled"] is False
+
+
+def test_prototype_named_queries_and_uncited_answer_render(results):
+    r = results["prototypeQuery"]
+    assert r["errorHidden"] is True
+    assert r["sourcesCount"] == 2
+    assert r["statCited"] == "0"
+    assert r["statUncited"] == "2"
 
 
 def test_network_failure_server_unreachable(results):

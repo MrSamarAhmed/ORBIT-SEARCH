@@ -125,18 +125,34 @@ async def gemini_generate(api_key: str, payload: dict) -> str:
         )
 
     if body.get("error"):
-        error = body["error"]
-        message = error.get("message") if isinstance(error, dict) else error
-        raise APIError(502, "upstream_error", f"Gemini error: {message}")
+        raise APIError(502, "upstream_error", "Gemini request failed")
 
     candidates = body.get("candidates")
     parts = []
     if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
         content = candidates[0].get("content")
         if isinstance(content, dict):
-            parts = content.get("parts") or []
+            parts = content.get("parts")
+    if not isinstance(parts, list):
+        raise APIError(
+            502,
+            "upstream_error",
+            "Gemini returned an unexpected response shape",
+        )
 
-    text = "".join(part.get("text") or "" for part in parts if isinstance(part, dict))
+    texts = []
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        text = part.get("text")
+        if text is not None and not isinstance(text, str):
+            raise APIError(
+                502,
+                "upstream_error",
+                "Gemini returned an unexpected response shape",
+            )
+        texts.append(text or "")
+    text = "".join(texts)
     if not text.strip():
         raise APIError(502, "upstream_error", "Gemini returned no usable text")
 
@@ -257,8 +273,17 @@ def normalize_url(url: str | None) -> str:
     # Canonical key for deduplication; responses keep each source's raw URL text.
     if not isinstance(url, str):
         return ""
-    parts = urlsplit(url.strip())
-    if not parts.netloc:
+    try:
+        parts = urlsplit(url.strip())
+        if (
+            parts.scheme not in ("http", "https")
+            or not parts.netloc
+            or not parts.hostname
+        ):
+            return ""
+        # Accessing port validates its syntax and range.
+        parts.port
+    except ValueError:
         return ""
     return urlunsplit(
         (
@@ -271,7 +296,7 @@ def normalize_url(url: str | None) -> str:
     )
 
 
-INLINE_URL_PATTERN = re.compile(r"https?://[^\s<>\"'`]+")
+INLINE_URL_PATTERN = re.compile(r"https?://[^\s<>\"'`]+", re.IGNORECASE)
 TRAILING_URL_PUNCTUATION = ".,;:!?)]}\"'"
 MALFORMED_CITATION_PATTERN = re.compile(
     r"\[([^\]]*)\]\(\[(https?://[^\s\]]+)\]\((https?://[^\s)]+)\)\)"
@@ -456,9 +481,7 @@ async def research(request: Request):
 
     try:
         answer = await synthesize(question, evidence_sources, api_key)
-    except (GeminiUnavailable, GeminiTimeout) as exc:
-        # exc.message is our own fixed-format string (an upstream status code
-        # or the fixed timeout notice) — never headers or response bodies.
+    except APIError as exc:
         reason = (
             "AI synthesis timed out"
             if isinstance(exc, GeminiTimeout)

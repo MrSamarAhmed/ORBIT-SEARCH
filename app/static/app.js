@@ -87,10 +87,18 @@
       ? payload.citations.filter(function (c) { return typeof c === "string"; })
       : [];
 
-    var citedKeys = {};
+    var mentionedKeys = Object.create(null);
+    var answerUrls = typeof payload.answer === "string"
+      ? payload.answer.match(/https?:\/\/[^\s<>"'`\])]+/gi) || []
+      : [];
+    answerUrls.forEach(function (url) {
+      var key = urlKey(url.replace(/[.,;:!?]+$/, ""));
+      if (key !== null) mentionedKeys[key] = true;
+    });
+    var citedKeys = Object.create(null);
     rawCitations.forEach(function (c) {
       var key = urlKey(c);
-      if (key !== null) citedKeys[key] = true;
+      if (key !== null && mentionedKeys[key]) citedKeys[key] = true;
     });
 
     var sourceIndexByKey = {};
@@ -107,7 +115,7 @@
       if (key !== null && citedKeys[key]) citedCount += 1;
     });
 
-    var byQuery = {};
+    var byQuery = Object.create(null);
     sources.forEach(function (source) {
       var q = typeof source.query === "string" ? source.query : "";
       if (!byQuery[q]) byQuery[q] = [];
